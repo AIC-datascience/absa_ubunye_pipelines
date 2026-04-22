@@ -15,7 +15,7 @@ resources:
       tasks:
         - task_key: policy_device_mapping
           notebook_task:
-            notebook_path: ./pipelines/telematics/etl/policy_device_mapping/notebooks/policy_device_mapping_dev.py
+            notebook_path: ../pipelines/telematics/etl/policy_device_mapping/notebooks/policy_device_mapping_dev.py
             base_parameters:
               task_dir: ${workspace.file_path}/pipelines/telematics/etl/policy_device_mapping
               dt: ${var.data_timestamp}
