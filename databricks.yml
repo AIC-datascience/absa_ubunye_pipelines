@@ -1,0 +1,54 @@
+# Databricks Asset Bundle - ABSA Ubunye pipelines.
+#
+# Pattern follows docs/deployment.md in the ubunye_engine repo: the root
+# `databricks.yml` defines the bundle and targets; per-job definitions live
+# in `bundles/*.yml` and are pulled in through `include`. Unity Catalog
+# identifiers and the source table name are supplied at deploy time via
+# `--var` from GitHub environment secrets; nothing confidential is
+# committed to source.
+
+bundle:
+  name: absa-ubunye-pipelines
+
+include:
+  - bundles/*.yml
+
+variables:
+  catalog:
+    description: |
+      Unity Catalog catalog for the ABSA telematics + flood-risk tables.
+      Supplied via `--var catalog=${TELM_CATALOG}` in the deploy workflow.
+    default: ""
+  schema:
+    description: |
+      Unity Catalog schema for the ABSA tables. Supplied via
+      `--var schema=${TELM_SCHEMA}`.
+    default: ""
+  address_source_table:
+    description: |
+      Unqualified name of the source table with `(id, address)` rows to
+      geocode. Supplied via `--var address_source_table=${ADDRESS_SOURCE_TABLE}`.
+    default: ""
+  secret_scope:
+    description: Databricks secret scope holding tomtom_api_key + jba_basic_auth.
+    default: absa-flood
+  data_timestamp:
+    description: Data timestamp injected into configs as `{{ dt }}`.
+    default: ""
+
+sync:
+  include:
+    - pipelines/**
+    - bundles/**
+
+targets:
+  nonprod:
+    mode: development
+    default: true
+    # workspace.host is read from $DATABRICKS_HOST in the CI env.
+
+  prod:
+    mode: production
+    # Run prod under the workspace service principal by setting
+    # `run_as.service_principal_name` in bundles/*.yml if the deploying
+    # identity differs from the job-runtime identity.
