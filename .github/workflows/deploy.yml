@@ -116,9 +116,9 @@ jobs:
     environment: prod
 
     env:
-      DATABRICKS_HOST:          ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_CLIENT_ID }}
-      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_HOST:          ${{ secrets.DATABRICKS_HOST_NONPROD }}
+      DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_CLIENT_ID_NONPROD }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET_NONPROD }}
       DATABRICKS_TOKEN:         ${{ secrets.DATABRICKS_TOKEN }}
       TELM_CATALOG:             ${{ secrets.TELM_CATALOG }}
       TELM_SCHEMA:              ${{ secrets.TELM_SCHEMA }}
