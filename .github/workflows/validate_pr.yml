@@ -1,0 +1,56 @@
+name: validate-pr
+
+# On every pull request to main: render Jinja + Pydantic-validate each
+# task's config.yaml, then run the local-Spark unit tests. No Databricks
+# credentials needed for this gate.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: validate-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Dummy values so Jinja {{ env.* }} renders without raising; these do
+    # not touch any real workspace.
+    env:
+      TELM_CATALOG: ci_catalog
+      TELM_SCHEMA: ci_schema
+      ADDRESS_SOURCE_TABLE: ci_addresses
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Java 17 (required by PySpark)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate pipeline configs
+        run: |
+          ubunye validate -d pipelines -u flood -p etl --all
+          ubunye validate -d pipelines -u telematics -p etl --all
+
+      - name: Unit tests (local SparkSession)
+        run: pytest tests/ -v

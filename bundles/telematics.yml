@@ -1,0 +1,24 @@
+# Telematics policy/device mapping ETL: single task, monthly cadence.
+# Exposure data is typically finalised by end-of-day on the 1st, so the
+# job runs on the 2nd at 06:00 UTC.
+
+resources:
+  jobs:
+    absa_telematics_policy_device_mapping:
+      name: absa-telematics-policy-device-mapping-${bundle.target}
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 0 6 2 * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
+      tasks:
+        - task_key: policy_device_mapping
+          notebook_task:
+            notebook_path: ./pipelines/telematics/etl/policy_device_mapping/notebooks/policy_device_mapping_dev.py
+            base_parameters:
+              task_dir: ${workspace.file_path}/pipelines/telematics/etl/policy_device_mapping
+              dt: ${var.data_timestamp}
+              mode: PROD
+              telm_catalog: ${var.catalog}
+              telm_schema: ${var.schema}

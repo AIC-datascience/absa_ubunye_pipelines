@@ -1,0 +1,178 @@
+name: deploy
+
+# Deploys the Databricks Asset Bundle.
+#
+#   * push to main           -> deploy to nonprod (auto)
+#   * workflow_dispatch      -> deploy to nonprod OR prod (manual, pick target)
+#
+# Each job is scoped to a GitHub Environment (`nonprod` / `prod`) so secrets
+# resolve from the matching environment store. Put approval/required-reviewer
+# protection rules on the `prod` environment to gate production deploys.
+#
+# Expected secrets (same names in both environments; only values differ):
+#   DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET
+#   DATABRICKS_TOKEN (optional PAT fallback),
+#   TELM_CATALOG, TELM_SCHEMA, ADDRESS_SOURCE_TABLE
+# (The three UC identifiers can live as repo-level secrets if they don't
+# differ between environments — environment-level overrides take precedence.)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which target to deploy"
+        type: choice
+        options: [nonprod, prod]
+        default: nonprod
+      run_after_deploy:
+        description: "Trigger the jobs after deploying"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.event.inputs.target || 'nonprod' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-nonprod:
+    # Runs on every push to main, and on manual dispatch when target=nonprod.
+    if: ${{ github.event_name == 'push' || github.event.inputs.target == 'nonprod' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: nonprod
+
+    env:
+      DATABRICKS_HOST:          ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_TOKEN:         ${{ secrets.DATABRICKS_TOKEN }}
+      TELM_CATALOG:             ${{ secrets.TELM_CATALOG }}
+      TELM_SCHEMA:              ${{ secrets.TELM_SCHEMA }}
+      ADDRESS_SOURCE_TABLE:     ${{ secrets.ADDRESS_SOURCE_TABLE }}
+      TARGET: nonprod
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: check_secrets
+        name: Check for Databricks secrets
+        # Skip (with warning) instead of failing so a first clone or a fork
+        # without secrets still surfaces PR validation as the active gate.
+        run: |
+          if [[ -z "${DATABRICKS_HOST}" ]]; then
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DATABRICKS_HOST not set in the ${TARGET} environment - skipping bundle deploy."
+          elif [[ -z "${TELM_CATALOG}" || -z "${TELM_SCHEMA}" || -z "${ADDRESS_SOURCE_TABLE}" ]]; then
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TELM_CATALOG / TELM_SCHEMA / ADDRESS_SOURCE_TABLE not all set - skipping bundle deploy."
+          elif [[ -n "${DATABRICKS_TOKEN}" ]] || \
+               [[ -n "${DATABRICKS_CLIENT_ID}" && -n "${DATABRICKS_CLIENT_SECRET}" ]]; then
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Neither DATABRICKS_TOKEN nor DATABRICKS_CLIENT_ID+SECRET set in the ${TARGET} environment - skipping bundle deploy."
+          fi
+
+      - name: Install Databricks CLI
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        uses: databricks/setup-cli@main
+
+      - name: databricks bundle validate
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        run: |
+          databricks bundle validate --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+
+      - name: databricks bundle deploy
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        run: |
+          databricks bundle deploy --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+
+      - name: Run jobs after deploy (manual trigger only)
+        if: ${{ steps.check_secrets.outputs.has_secrets == 'true' && github.event_name == 'workflow_dispatch' && inputs.run_after_deploy }}
+        run: |
+          databricks bundle run absa_flood_risk --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+          databricks bundle run absa_telematics_policy_device_mapping --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+
+  deploy-prod:
+    # Manual-only. Configure required-reviewer protection on the `prod`
+    # environment (repo Settings -> Environments -> prod) to gate this
+    # behind a human approval click.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'prod' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: prod
+
+    env:
+      DATABRICKS_HOST:          ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_TOKEN:         ${{ secrets.DATABRICKS_TOKEN }}
+      TELM_CATALOG:             ${{ secrets.TELM_CATALOG }}
+      TELM_SCHEMA:              ${{ secrets.TELM_SCHEMA }}
+      ADDRESS_SOURCE_TABLE:     ${{ secrets.ADDRESS_SOURCE_TABLE }}
+      TARGET: prod
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check for Databricks secrets
+        # Prod fails hard on missing config (the opposite of nonprod's
+        # skip-with-warning) so misconfiguration can't silently drop a
+        # production deploy.
+        run: |
+          if [[ -z "${DATABRICKS_HOST}" ]]; then
+            echo "::error::DATABRICKS_HOST not set in the prod environment."
+            exit 1
+          fi
+          if [[ -z "${TELM_CATALOG}" || -z "${TELM_SCHEMA}" || -z "${ADDRESS_SOURCE_TABLE}" ]]; then
+            echo "::error::TELM_CATALOG / TELM_SCHEMA / ADDRESS_SOURCE_TABLE not all set for prod."
+            exit 1
+          fi
+          if [[ -z "${DATABRICKS_TOKEN}" ]] && \
+             [[ -z "${DATABRICKS_CLIENT_ID}" || -z "${DATABRICKS_CLIENT_SECRET}" ]]; then
+            echo "::error::Neither DATABRICKS_TOKEN nor DATABRICKS_CLIENT_ID+SECRET set for prod."
+            exit 1
+          fi
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: databricks bundle validate
+        run: |
+          databricks bundle validate --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+
+      - name: databricks bundle deploy
+        run: |
+          databricks bundle deploy --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+
+      - name: Run jobs after deploy (manual trigger only)
+        if: ${{ inputs.run_after_deploy }}
+        run: |
+          databricks bundle run absa_flood_risk --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"
+          databricks bundle run absa_telematics_policy_device_mapping --target "${TARGET}" \
+            --var="catalog=${TELM_CATALOG}" \
+            --var="schema=${TELM_SCHEMA}" \
+            --var="address_source_table=${ADDRESS_SOURCE_TABLE}"

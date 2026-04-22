@@ -1,0 +1,43 @@
+# Flood-risk job: two chained tasks (geocode -> JBA) matching the
+# pipeline topology in `pipelines/flood/etl/`. Scheduled quarterly;
+# TomTom calls are the expensive part so re-geocoding more often than
+# that is wasteful.
+
+resources:
+  jobs:
+    absa_flood_risk:
+      name: absa-flood-risk-${bundle.target}
+      max_concurrent_runs: 1
+      schedule:
+        # Quarterly: Jan/Apr/Jul/Oct 1st at 06:00 UTC.
+        quartz_cron_expression: "0 0 6 1 1,4,7,10 ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
+      tasks:
+        - task_key: geocode_addresses
+          notebook_task:
+            notebook_path: ./pipelines/flood/etl/geocode_addresses/notebooks/geocode_addresses_dev.py
+            base_parameters:
+              task_dir: ${workspace.file_path}/pipelines/flood/etl/geocode_addresses
+              dt: ${var.data_timestamp}
+              mode: PROD
+              telm_catalog: ${var.catalog}
+              telm_schema: ${var.schema}
+              address_source_table: ${var.address_source_table}
+              # Secret interpolation: Databricks redacts the value in the UI
+              # and replaces the template at job-run time.
+              tomtom_api_key: "{{secrets/${var.secret_scope}/tomtom_api_key}}"
+
+        - task_key: flood_risk
+          depends_on:
+            - task_key: geocode_addresses
+          notebook_task:
+            notebook_path: ./pipelines/flood/etl/flood_risk/notebooks/flood_risk_dev.py
+            base_parameters:
+              task_dir: ${workspace.file_path}/pipelines/flood/etl/flood_risk
+              dt: ${var.data_timestamp}
+              mode: PROD
+              telm_catalog: ${var.catalog}
+              telm_schema: ${var.schema}
+              jba_basic_auth: "{{secrets/${var.secret_scope}/jba_basic_auth}}"
