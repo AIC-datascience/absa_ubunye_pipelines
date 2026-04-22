@@ -21,9 +21,9 @@ jobs:
     # Dummy values so Jinja {{ env.* }} renders without raising; these do
     # not touch any real workspace.
     env:
-      TELM_CATALOG: ci_catalog
-      TELM_SCHEMA: ci_schema
-      ADDRESS_SOURCE_TABLE: ci_addresses
+      TELM_CATALOG:  ${{ secrets.TELM_CATALOG }}
+      TELM_SCHEMA: ${{ secrets.TELM_SCHEMA }}
+      ADDRESS_SOURCE_TABLE: ${{ secrets.ADDRESS_SOURCE_TABLE }}
 
     steps:
       - name: Checkout
