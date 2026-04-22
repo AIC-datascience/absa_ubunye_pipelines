@@ -17,7 +17,7 @@ resources:
       tasks:
         - task_key: geocode_addresses
           notebook_task:
-            notebook_path: ./pipelines/flood/etl/geocode_addresses/notebooks/geocode_addresses_dev.py
+            notebook_path: ../pipelines/flood/etl/geocode_addresses/notebooks/geocode_addresses_dev.py
             base_parameters:
               task_dir: ${workspace.file_path}/pipelines/flood/etl/geocode_addresses
               dt: ${var.data_timestamp}
@@ -33,7 +33,7 @@ resources:
           depends_on:
             - task_key: geocode_addresses
           notebook_task:
-            notebook_path: ./pipelines/flood/etl/flood_risk/notebooks/flood_risk_dev.py
+            notebook_path: ../pipelines/flood/etl/flood_risk/notebooks/flood_risk_dev.py
             base_parameters:
               task_dir: ${workspace.file_path}/pipelines/flood/etl/flood_risk
               dt: ${var.data_timestamp}
