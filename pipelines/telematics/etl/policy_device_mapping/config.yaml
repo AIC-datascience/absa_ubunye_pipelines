@@ -30,7 +30,7 @@ CONFIG:
   inputs:
     policy_device_details:
       format: unity
-      table: "{{ env.TELM_CATALOG }}.{{ env.TELM_SCHEMA }}.aq_policy_device_details"
+      sql: select * from "{{ env.TELM_CATALOG }}.{{ env.TELM_SCHEMA }}.aq_policy_device_details"
     user_imei:
       format: unity
       table: "{{ env.TELM_CATALOG }}.{{ env.TELM_SCHEMA }}.aq_user_imei"
